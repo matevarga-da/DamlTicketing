@@ -1,0 +1,89 @@
+module Main where
+
+data Attachment = Attachment with
+    fileName : Text
+    url : Text
+    size: Int
+  deriving( Eq, Show )
+
+template PublicComment with
+    creator: Party
+    ticket: ContractId Ticket
+    ticketId: Int
+    attachments: [Attachment]
+    creationTime: Time
+    body: Text
+    followers: [Party]
+    org: Party
+  where
+    signatory creator
+    observer org::followers 
+    ensure body /= "" || not(null attachments)
+    
+    choice UpdateFollowers: ContractId PublicComment
+      with
+        updater: Party
+        creator: Party
+      controller updater
+      do
+        t <- fetchByKey @Ticket (creator, org, ticketId) 
+        create this with
+          followers = t._2.followers
+
+template Ticket with
+    creator: Party
+    assignee: Optional Party
+    id: Int
+    subject: Text
+    description: Text
+    followers: [Party]
+    org: Party
+  where
+    signatory creator
+    observer org::followers
+
+    key (creator,org,id) : (Party,Party,Int)
+    maintainer key._1
+
+    ensure subject /= "" && description /= ""
+
+    choice Assign : ContractId Ticket
+      with
+        newAssignee : Party
+      controller org 
+      do
+        create this with
+          assignee = Some newAssignee
+          followers = newAssignee::this.followers
+
+    choice AddFollowers : ContractId Ticket
+      with
+        adder: Party
+        newFollowers : [Party]
+      controller adder
+      do
+        if null newFollowers then
+          pure(self)
+        else
+          create this with
+            followers = followers <> newFollowers
+    
+    nonconsuming choice AddComment : ContractId PublicComment
+      with
+        creator : Party
+        attachments: [Attachment]
+        body : Text
+      controller creator
+      do
+        now <- getTime
+        let attachmentsCleaned = filter (\e -> e.fileName /= "" && e.url /= "" && e.size > 0) attachments
+        assertMsg "Both attachments and body fields are empty or invalid. You cannot create empty or invalid comments!" (not(null attachmentsCleaned) || (body /= ""))
+        create PublicComment with
+          creator = creator
+          ticket = self
+          ticketId = this.id
+          attachments = attachmentsCleaned
+          creationTime = now
+          body = body
+          org = org
+          followers = followers

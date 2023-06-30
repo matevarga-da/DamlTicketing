@@ -1,0 +1,39 @@
+module Setup where
+
+import Daml.Script
+
+data Parties = Parties with
+  org : Party
+  client1 : Party
+  client2 : Party
+  client3 : Party
+  agent1: Party
+
+createSupportUser name id = script do
+  p <- allocatePartyWithHint name (PartyIdHint id)
+  uid <- validateUserId id
+  createUser (User uid (Some p)) [CanActAs p]
+  return (p,uid)
+
+createSupportAgent name id org= script do
+  p <- allocatePartyWithHint name (PartyIdHint id)
+  uid <- validateUserId id
+  createUser (User uid (Some p)) [CanActAs p, CanActAs org]
+  return (p,uid)
+
+setupUsers = script do
+  org <- createSupportUser "Organisation" "ORG"
+  c1 <- createSupportUser "Support User #1" "SU1"
+  c2 <- createSupportUser "Support User #2" "SU2"
+  c3 <- createSupportUser "Support User #3" "SU3"
+  s1 <- createSupportAgent "Support Agent #1" "SA1" org._1
+  return(Parties with
+    org = org._1
+    client1 = c1._1
+    client2 = c2._1
+    client3 = c3._1
+    agent1 = s1._1)
+
+setup = script do
+  (parties@Parties{..}) <- setupUsers
+  return parties 

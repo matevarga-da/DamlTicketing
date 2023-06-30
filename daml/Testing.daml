@@ -1,0 +1,168 @@
+module Testing where
+
+import Main
+import Setup
+import Daml.Script
+import DA.Optional
+import DA.Either
+import DA.Foldable
+
+addFollowers : ContractId Ticket -> Party -> [Party] -> Script ( Either (ContractId Ticket) Text )
+addFollowers id creator followers = script do
+  ticket <- queryContractId creator id
+  if isSome ticket then do
+    newId <- submit creator do
+      exerciseCmd id AddFollowers 
+        with 
+          adder = creator
+          newFollowers = followers
+    ticketComments <- queryFilter @PublicComment creator (\e -> e.ticketId == (fromSome ticket).id)
+    mapA_ (\e -> submit creator do exerciseCmd e._1 UpdateFollowers with updater = creator, creator = (fromSome ticket).creator ) ticketComments
+    return ( Left newId )
+  else
+    return ( Right "Failed!" ) 
+
+testFullWorkflow = script do
+  (parties@Parties{..}) <- setupUsers
+  tcid <- submit client1 do
+    createCmd Ticket with
+      creator = client1
+      assignee = None
+      id = 0
+      subject = "I need help accessing your services"
+      description = "Hi! \n Please make my user able to see all my company's ledgers. \nThanks,\nClient1"
+      followers = []
+      org = org
+
+  tcid <- submit org do
+    exerciseCmd tcid Assign with
+      newAssignee = agent1
+  
+  etcid <- addFollowers tcid client1 [client2]
+
+  pccid <- submit agent1 do
+    exerciseCmd (fromLeft tcid etcid) AddComment with
+      creator = agent1
+      body = "Hi Client1!\nCould you please share your exact user id in our system?\nKind Regards,\nAgent1"
+      attachments = [ Attachment 
+        with 
+          fileName="usernameScreen.png"
+          url="https://thefileissurelyaccessiblehere.dum/usernameScreen.png" 
+          size=124124124]
+
+  etcid <- addFollowers (fromLeft tcid etcid) client2 [client3]
+
+  pccid <- submit client1 do
+    exerciseCmd (fromLeft tcid etcid) AddComment with
+      creator = client1
+      body = "Hi Agent1!\nMy user name is: 'Client Number One!'\nThanks,\nClient1"
+      attachments = [ Attachment 
+        with 
+          fileName="myUsernameScreen.png"
+          url="https://thefileissurelyaccessiblehere.dum/myUsernameScreen.png" 
+          size=1241436124]
+  
+  pccid <- submit agent1 do
+    exerciseCmd (fromLeft tcid etcid) AddComment with
+      creator = agent1
+      body = "Hi Client1!\nI have granted the access, could you please check now?\nKind Regards,\nAgent1"
+      attachments = []
+
+  pccid <- submit client1 do
+    exerciseCmd (fromLeft tcid etcid) AddComment with
+      creator = client1
+      body = "Hi Agent1!\nIt works now, thank you!\nKind Regards,\nClient1"
+      attachments = []
+
+  return()
+
+
+testUnhappyPaths = script do
+  (parties@Parties{..}) <- setupUsers
+
+  submitMustFail client1 do
+    createCmd Ticket with
+      creator = client1
+      assignee = None
+      id = 0
+      subject = ""
+      description = "Hi! \n Please make my user able to see all my company's ledgers. \nThanks,\nClient1"
+      followers = []
+      org = org
+  
+  submitMustFail client1 do
+    createCmd Ticket with
+      creator = client1
+      assignee = None
+      id = 0
+      subject = "I need help accessing your services"
+      description = ""
+      followers = []
+      org = org
+
+  tcid <- submit client1 do
+    createCmd Ticket with
+      creator = client1
+      assignee = None
+      id = 0
+      subject = "I need help accessing your services"
+      description = "Hi! \n Please make my user able to see all my company's ledgers. \nThanks,\nClient1"
+      followers = []
+      org = org
+
+  submitMustFail client1 do
+    createCmd Ticket with
+      creator = client1
+      assignee = None
+      id = 0
+      subject = "I need help accessing your services"
+      description = "Hi! \n Please make my user able to see all my company's ledgers. \nThanks,\nClient1"
+      followers = []
+      org = org
+
+  tcid <- submit org do
+    exerciseCmd tcid Assign with
+      newAssignee = agent1
+
+  submitMustFail agent1 do
+    exerciseCmd tcid AddComment with
+      creator = agent1
+      body = ""
+      attachments = [ Attachment 
+        with 
+          fileName="usernameScreen.png"
+          url="https://thefileissurelyaccessiblehere.dum/usernameScreen.png" 
+          size=0]
+  
+  submitMustFail agent1 do
+    exerciseCmd tcid AddComment with
+      creator = agent1
+      body = ""
+      attachments = [ Attachment 
+        with 
+          fileName="usernameScreen.png"
+          url="" 
+          size=1221]
+  
+  submitMustFail agent1 do
+    exerciseCmd tcid AddComment with
+      creator = agent1
+      body = ""
+      attachments = [ Attachment 
+        with 
+          fileName=""
+          url="https://thefileissurelyaccessiblehere.dum/usernameScreen.png" 
+          size=1221]
+
+  submit agent1 do
+    exerciseCmd tcid AddComment with
+      creator = agent1
+      body = "Test"
+      attachments = [ Attachment 
+        with 
+          fileName=""
+          url="" 
+          size=0]
+
+
+  return ()
